@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --c-bg: 250 247 242;
+    --c-surface: 255 255 255;
+    --c-surface2: 245 241 234;
+    --c-line: 232 226 216;
+    --c-ink: 44 42 39;
+    --c-muted: 140 133 124;
+    --c-brand: 214 126 58;
+    --c-brand-soft: 251 238 226;
+    --c-done: 74 152 118;
+    --c-done-soft: 227 243 235;
+  }
+
+  .dark {
+    --c-bg: 22 22 24;
+    --c-surface: 32 32 35;
+    --c-surface2: 42 42 46;
+    --c-line: 56 56 61;
+    --c-ink: 234 231 226;
+    --c-muted: 148 144 138;
+    --c-brand: 232 150 86;
+    --c-brand-soft: 60 44 32;
+    --c-done: 106 186 148;
+    --c-done-soft: 33 54 46;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    margin: 0;
+    min-height: 100dvh;
+  }
+
+  /* 키보드 사용자에게만 포커스 링 */
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-brand));
+    outline-offset: 2px;
+  }
+
+  button {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-line rounded-xl2 shadow-card;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl2 font-semibold
+           transition active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand text-white px-5 py-3.5 shadow-card hover:brightness-105;
+  }
+
+  .btn-ghost {
+    @apply btn bg-surface2 text-ink px-5 py-3.5 hover:brightness-[0.97] dark:hover:brightness-110;
+  }
+
+  .btn-line {
+    @apply btn border border-line text-ink px-5 py-3.5 hover:bg-surface2;
+  }
+
+  .field {
+    @apply w-full rounded-xl2 border border-line bg-surface px-4 py-3.5 text-ink
+           placeholder:text-muted/70 outline-none
+           focus:border-brand focus:ring-4 focus:ring-brand/15 transition;
+  }
+
+  .label {
+    @apply block text-sm font-semibold text-muted mb-2;
+  }
+
+  .skeleton {
+    @apply rounded-xl2 bg-surface2;
+    background-image: linear-gradient(
+      90deg,
+      rgb(var(--c-surface2)) 0px,
+      rgb(var(--c-line)) 120px,
+      rgb(var(--c-surface2)) 240px
+    );
+    background-size: 800px 100%;
+    @apply animate-shimmer;
+  }
+}
+
+/* 애니메이션을 줄이도록 설정한 사용자 존중 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

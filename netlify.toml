@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA 라우팅: 모든 경로를 index.html 로 넘겨야 새로고침 시 404가 나지 않습니다.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#faf7f2" />
+    <meta name="description" content="매일의 10가지 약속을 지키고, 돌아보고, 조금씩 나아지는 자기관리 앱" />
+    <title>내일의 나</title>
+    <script>
+      // 테마 깜빡임(FOUC) 방지: 렌더 전에 클래스 적용
+      (function () {
+        try {
+          var t = localStorage.getItem('nn-theme') || 'system'
+          var dark =
+            t === 'dark' ||
+            (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) document.documentElement.classList.add('dark')
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

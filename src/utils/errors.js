@@ -72,7 +72,7 @@ export function humanError(error, fallback = '문제가 발생했습니다. 잠�
 
   // 아직 정리되지 않은 오류는 개발 중에만 원문을 함께 보여준다.
   // (원인을 찾느라 콘솔을 뒤지지 않아도 되도록)
-  if (import.meta.env.DEV && raw) return `${fallback}\n(개발용 원문: ${raw})`
+  if (raw) return `${fallback}\n(오류 원문: ${raw})`
 
   return fallback
 }

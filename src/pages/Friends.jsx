@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Copy, Check, Users, UserPlus, RefreshCw, Lock } from 'lucide-react'
+import { Copy, Check, UserPlus, RefreshCw, Lock, X, Inbox, Send } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useToday } from '../hooks/useToday'
+import { useFriendChannels } from '../hooks/useFriendChannels'
 import {
-  createGroup,
-  getGroupStats,
-  getMyGroup,
-  joinGroup,
+  MAX_FRIENDS,
+  acceptFriendRequest,
+  deleteFriendRequest,
+  getFriendStats,
+  listFriendRequests,
+  removeFriend,
   sendCheer,
-} from '../services/groups'
+  sendFriendRequest,
+} from '../services/friends'
 import { humanError } from '../utils/errors'
 
 import FriendCard from '../components/FriendCard'
@@ -23,15 +27,15 @@ const BOARDS = [
 ]
 
 export default function Friends() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const toast = useToast()
   const today = useToday()
 
   const [loading, setLoading] = useState(true)
-  const [group, setGroup] = useState(null)
-  const [members, setMembers] = useState([])
+  const [people, setPeople] = useState([]) // 나 + 친구들
+  const [requests, setRequests] = useState([])
   const [board, setBoard] = useState('week')
-  const [cheerBusy, setCheerBusy] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
   const load = useCallback(
@@ -39,11 +43,11 @@ export default function Friends() {
       if (!user) return
       if (!silent) setLoading(true)
       try {
-        const g = await getMyGroup(user.id)
-        setGroup(g)
-        setMembers(g ? await getGroupStats(g.id, today) : [])
+        const [stats, reqs] = await Promise.all([getFriendStats(today), listFriendRequests()])
+        setPeople(stats)
+        setRequests(reqs)
       } catch (e) {
-        toast.error(humanError(e, '그룹 정보를 불러오지 못했습니다.'))
+        toast.error(humanError(e, '친구 정보를 불러오지 못했습니다.'))
       } finally {
         setLoading(false)
         setRefreshing(false)
@@ -56,41 +60,54 @@ export default function Friends() {
     load()
   }, [load])
 
+  const friends = useMemo(() => people.filter((p) => !p.isMe), [people])
+  const friendIds = useMemo(() => friends.map((f) => f.userId), [friends])
+
+  const onRealtimeUpdate = useCallback(() => load(true), [load])
+  const pingFriends = useFriendChannels(user?.id ?? null, friendIds, onRealtimeUpdate)
+
   async function cheer(member, type) {
-    setCheerBusy(true)
-    // 낙관적 표시
-    setMembers((list) =>
+    setBusy(true)
+    setPeople((list) =>
       list.map((m) => (m.userId === member.userId ? { ...m, cheeredToday: true } : m))
     )
     try {
-      await sendCheer({
-        senderId: user.id,
-        receiverId: member.userId,
-        groupId: group.id,
-        type,
-        ymd: today,
-      })
+      await sendCheer({ senderId: user.id, receiverId: member.userId, type, ymd: today })
       toast.success(`${member.nickname}님에게 응원을 보냈습니다 👏`)
+      pingFriends()
     } catch (e) {
-      setMembers((list) =>
+      setPeople((list) =>
         list.map((m) => (m.userId === member.userId ? { ...m, cheeredToday: false } : m))
       )
       toast.error(humanError(e, '응원을 보내지 못했습니다.'))
     } finally {
-      setCheerBusy(false)
+      setBusy(false)
+    }
+  }
+
+  async function unfriend(member) {
+    setBusy(true)
+    try {
+      await removeFriend(user.id, member.userId)
+      toast.success(`${member.nickname}님과 친구를 끊었습니다.`)
+      await load(true)
+      pingFriends()
+    } catch (e) {
+      toast.error(humanError(e, '친구를 끊지 못했습니다.'))
+    } finally {
+      setBusy(false)
     }
   }
 
   const rankings = useMemo(() => {
     const cfg = BOARDS.find((b) => b.id === board) ?? BOARDS[0]
-    const rows = [...members].sort((a, b) => cfg.get(b) - cfg.get(a))
-    return { cfg, rows }
-  }, [members, board])
+    return { cfg, rows: [...people].sort((a, b) => cfg.get(b) - cfg.get(a)) }
+  }, [people, board])
 
   if (loading) {
     return (
       <div className="space-y-5">
-        <Skeleton className="h-10 w-40" />
+        <Skeleton className="h-10 w-32" />
         <Skeleton className="h-24 w-full" />
         <Skeleton className="h-28 w-full" />
         <Skeleton className="h-28 w-full" />
@@ -98,15 +115,17 @@ export default function Friends() {
     )
   }
 
-  if (!group) return <NoGroup userId={user.id} onDone={() => load()} />
+  const incoming = requests.filter((r) => r.direction === 'incoming')
+  const outgoing = requests.filter((r) => r.direction === 'outgoing')
 
   return (
     <div className="space-y-6 animate-fadeUp">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="truncate text-2xl font-extrabold tracking-tight text-ink">{group.name}</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight text-ink">친구</h1>
           <p className="mt-1 text-sm text-muted">
-            현재 인원 <b className="text-ink">{members.length}</b> / 4
+            친구 <b className="text-ink">{friends.length}</b>명
+            {friends.length >= MAX_FRIENDS && ' · 가득 찼어요'}
           </p>
         </div>
         <button
@@ -122,23 +141,122 @@ export default function Friends() {
         </button>
       </header>
 
-      <InviteCard code={group.invite_code} full={members.length >= 4} />
+      <MyCode code={profile?.friend_code} />
 
-      {/* 그룹원 카드 */}
-      <section className="space-y-2.5">
-        {members.map((m) => (
-          <FriendCard
-            key={m.userId}
-            member={m}
-            isMe={m.userId === user.id}
-            cheerBusy={cheerBusy}
-            onCheer={cheer}
-          />
-        ))}
-      </section>
+      <AddFriend
+        disabled={friends.length >= MAX_FRIENDS}
+        onDone={async (result) => {
+          await load(true)
+          if (result.status === 'accepted') pingFriends()
+        }}
+      />
 
-      {/* 순위 — 기준을 여러 개 둬서 한 사람만 인정받지 않도록 */}
-      {members.length >= 2 && (
+      {/* 받은 요청 */}
+      {incoming.length > 0 && (
+        <section>
+          <h2 className="mb-2 flex items-center gap-1.5 px-1 text-xs font-bold tracking-wider text-brand">
+            <Inbox size={13} aria-hidden="true" /> 받은 요청 {incoming.length}
+          </h2>
+          <div className="card divide-y divide-line">
+            {incoming.map((r) => (
+              <RequestRow
+                key={r.id}
+                request={r}
+                busy={busy}
+                onAccept={async () => {
+                  setBusy(true)
+                  try {
+                    await acceptFriendRequest(r.id)
+                    toast.success(`${r.nickname}님과 친구가 되었습니다.`)
+                    await load(true)
+                    pingFriends()
+                  } catch (e) {
+                    toast.error(humanError(e, '수락하지 못했습니다.'))
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+                onReject={async () => {
+                  setBusy(true)
+                  try {
+                    await deleteFriendRequest(r.id)
+                    await load(true)
+                  } catch (e) {
+                    toast.error(humanError(e, '처리하지 못했습니다.'))
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 보낸 요청 */}
+      {outgoing.length > 0 && (
+        <section>
+          <h2 className="mb-2 flex items-center gap-1.5 px-1 text-xs font-bold tracking-wider text-muted">
+            <Send size={13} aria-hidden="true" /> 보낸 요청 {outgoing.length}
+          </h2>
+          <div className="card divide-y divide-line">
+            {outgoing.map((r) => (
+              <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface2 text-base">
+                  {r.avatar}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+                  {r.nickname}
+                </span>
+                <span className="shrink-0 text-xs text-muted">수락 대기 중</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true)
+                    try {
+                      await deleteFriendRequest(r.id)
+                      await load(true)
+                    } catch (e) {
+                      toast.error(humanError(e, '취소하지 못했습니다.'))
+                    } finally {
+                      setBusy(false)
+                    }
+                  }}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted transition hover:bg-surface2 disabled:opacity-50"
+                  aria-label="요청 취소"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 친구 목록 */}
+      {friends.length === 0 ? (
+        <EmptyState
+          emoji="🤝"
+          title="아직 친구가 없습니다"
+          description="위의 내 코드를 친구에게 알려주거나, 친구에게 받은 코드를 입력해보세요."
+        />
+      ) : (
+        <section className="space-y-2.5">
+          {people.map((m) => (
+            <FriendCard
+              key={m.userId}
+              member={m}
+              busy={busy}
+              onCheer={cheer}
+              onRemove={unfriend}
+            />
+          ))}
+        </section>
+      )}
+
+      {/* 순위 */}
+      {people.length >= 2 && (
         <section className="card px-5 py-5">
           <div className="mb-4 flex flex-wrap gap-1.5">
             {BOARDS.map((b) => (
@@ -169,7 +287,7 @@ export default function Friends() {
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
                     {m.nickname}
-                    {m.userId === user.id && <span className="ml-1.5 text-xs text-muted">(나)</span>}
+                    {m.isMe && <span className="ml-1.5 text-xs text-muted">(나)</span>}
                   </span>
                   <span className="shrink-0 text-sm font-bold tabular-nums text-ink">
                     {rankings.cfg.signed && v > 0 ? '+' : ''}
@@ -182,18 +300,17 @@ export default function Friends() {
           </ol>
 
           <p className="mt-5 break-keep border-t border-line pt-4 text-xs leading-relaxed text-muted">
-            순위는 기준에 따라 달라집니다. 가장 많이 한 사람만 잘하고 있는 것이 아니라,
-            꾸준한 사람과 나아지고 있는 사람도 함께 보여줍니다.
+            순위는 기준에 따라 달라집니다. 가장 많이 한 사람만 잘하고 있는 것이 아니라, 꾸준한
+            사람과 나아지고 있는 사람도 함께 보여줍니다.
           </p>
         </section>
       )}
 
-      {/* 프라이버시 안내 */}
       <p className="flex items-start gap-2 px-1 text-xs leading-relaxed text-muted">
         <Lock size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
         <span className="break-keep">
-          그룹원에게는 닉네임, 오늘 완료 개수, 연속 기록, 주간 달성률만 공개됩니다. 각자의 규칙
-          내용과 회고, 날짜별 상세 기록은 본인만 볼 수 있습니다.
+          친구에게는 닉네임, 오늘 완료 개수, 연속 기록, 주간 달성률만 공개됩니다. 각자의 규칙 내용과
+          회고, 날짜별 상세 기록은 본인만 볼 수 있습니다.
         </span>
       </p>
     </div>
@@ -202,28 +319,33 @@ export default function Friends() {
 
 /* ------------------------------------------------------------ */
 
-function InviteCard({ code, full }) {
+function MyCode({ code }) {
   const toast = useToast()
   const [copied, setCopied] = useState(false)
 
   function copy() {
+    if (!code) return
     navigator.clipboard
       ?.writeText(code)
       .then(() => {
         setCopied(true)
         setTimeout(() => setCopied(false), 1800)
       })
-      .catch(() => toast.info(`초대 코드: ${code}`))
+      .catch(() => toast.info(`내 친구 코드: ${code}`))
   }
 
   return (
     <section className="card flex items-center gap-4 px-5 py-4">
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-bold tracking-wider text-muted">초대 코드</p>
-        <p className="mt-0.5 text-xl font-black tracking-[0.22em] text-brand">{code}</p>
-        {full && <p className="mt-1 text-xs text-muted">정원이 모두 찼습니다.</p>}
+        <p className="text-xs font-bold tracking-wider text-muted">내 친구 코드</p>
+        <p className="mt-0.5 text-xl font-black tracking-[0.22em] text-brand">{code ?? '······'}</p>
       </div>
-      <button type="button" onClick={copy} className="btn-ghost shrink-0 px-4 py-2.5 text-sm">
+      <button
+        type="button"
+        onClick={copy}
+        disabled={!code}
+        className="btn-ghost shrink-0 px-4 py-2.5 text-sm"
+      >
         {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
         {copied ? '복사됨' : '복사'}
       </button>
@@ -231,119 +353,87 @@ function InviteCard({ code, full }) {
   )
 }
 
-function NoGroup({ userId, onDone }) {
+function AddFriend({ onDone, disabled }) {
   const toast = useToast()
-  const [mode, setMode] = useState(null)
-  const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
 
-  async function doCreate() {
-    if (!name.trim()) return toast.error('그룹 이름을 입력해주세요.')
-    setBusy(true)
-    try {
-      await createGroup(name)
-      toast.success('그룹을 만들었습니다.')
-      onDone()
-    } catch (e) {
-      toast.error(humanError(e, '그룹을 만들지 못했습니다.'))
-    } finally {
-      setBusy(false)
-    }
-  }
+  async function submit(e) {
+    e.preventDefault()
+    if (busy) return
+    if (code.trim().length < 4) return toast.error('친구 코드를 입력해주세요.')
+    if (disabled) return toast.error(`친구는 최대 ${MAX_FRIENDS}명까지 추가할 수 있습니다.`)
 
-  async function doJoin() {
-    if (code.trim().length < 4) return toast.error('초대 코드를 입력해주세요.')
     setBusy(true)
     try {
-      await joinGroup(code)
-      toast.success('그룹에 참여했습니다.')
-      onDone()
+      const result = await sendFriendRequest(code)
+      setCode('')
+      if (result.status === 'accepted') {
+        toast.success(`${result.nickname}님과 친구가 되었습니다.`)
+      } else {
+        toast.success(`${result.nickname}님에게 친구 요청을 보냈습니다.`)
+      }
+      await onDone(result)
     } catch (e) {
-      toast.error(humanError(e, '참여하지 못했습니다.'))
+      toast.error(humanError(e, '친구를 추가하지 못했습니다.'))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <div className="space-y-6 animate-fadeUp">
-      <header>
-        <h1 className="text-2xl font-extrabold tracking-tight text-ink">친구</h1>
-        <p className="mt-1 text-sm text-muted">최대 4명이 함께할 수 있어요.</p>
-      </header>
+    <form onSubmit={submit} className="card px-5 py-5">
+      <label className="label" htmlFor="friendcode">
+        친구 코드로 추가하기
+      </label>
+      <div className="flex gap-2">
+        <input
+          id="friendcode"
+          className="field text-center text-lg font-black uppercase tracking-[0.25em]"
+          maxLength={6}
+          value={code}
+          placeholder="7K4P2A"
+          autoComplete="off"
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+        />
+        <button type="submit" className="btn-primary shrink-0 px-5" disabled={busy}>
+          {busy ? <Spinner /> : <UserPlus size={17} aria-hidden="true" />}
+          <span className="sr-only">추가</span>
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-muted">
+        상대가 수락하면 친구가 됩니다. 서로 요청을 보냈다면 바로 친구가 돼요.
+      </p>
+    </form>
+  )
+}
 
-      {!mode && (
-        <>
-          <EmptyState
-            emoji="🤝"
-            title="아직 그룹이 없습니다"
-            description="그룹을 만들어 친구를 초대하거나, 받은 초대 코드로 참여해보세요."
-          />
-          <div className="space-y-2.5">
-            <button type="button" onClick={() => setMode('create')} className="btn-line w-full py-4">
-              <Users size={18} aria-hidden="true" /> 새로운 그룹 만들기
-            </button>
-            <button type="button" onClick={() => setMode('join')} className="btn-line w-full py-4">
-              <UserPlus size={18} aria-hidden="true" /> 초대 코드로 참여하기
-            </button>
-          </div>
-        </>
-      )}
-
-      {mode === 'create' && (
-        <section className="card px-5 py-5">
-          <label className="label" htmlFor="gname">
-            그룹 이름
-          </label>
-          <input
-            id="gname"
-            className="field"
-            maxLength={20}
-            value={name}
-            placeholder="우리들의 약속"
-            onChange={(e) => setName(e.target.value)}
-          />
-          <button type="button" onClick={doCreate} className="btn-primary mt-4 w-full" disabled={busy}>
-            {busy ? <Spinner /> : null}
-            그룹 만들기
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode(null)}
-            className="mt-2 w-full py-2 text-sm font-semibold text-muted hover:text-ink"
-          >
-            뒤로
-          </button>
-        </section>
-      )}
-
-      {mode === 'join' && (
-        <section className="card px-5 py-5">
-          <label className="label" htmlFor="gcode">
-            친구에게 받은 초대 코드
-          </label>
-          <input
-            id="gcode"
-            className="field text-center text-xl font-black uppercase tracking-[0.3em]"
-            maxLength={6}
-            value={code}
-            placeholder="7K4P2A"
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-          />
-          <button type="button" onClick={doJoin} className="btn-primary mt-4 w-full" disabled={busy}>
-            {busy ? <Spinner /> : null}
-            참여하기
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode(null)}
-            className="mt-2 w-full py-2 text-sm font-semibold text-muted hover:text-ink"
-          >
-            뒤로
-          </button>
-        </section>
-      )}
+function RequestRow({ request, busy, onAccept, onReject }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface2 text-base">
+        {request.avatar}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+        {request.nickname}
+      </span>
+      <button
+        type="button"
+        onClick={onAccept}
+        disabled={busy}
+        className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white transition active:scale-95 disabled:opacity-50"
+      >
+        수락
+      </button>
+      <button
+        type="button"
+        onClick={onReject}
+        disabled={busy}
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted transition hover:bg-surface2 disabled:opacity-50"
+        aria-label="거절"
+      >
+        <X size={15} />
+      </button>
     </div>
   )
 }

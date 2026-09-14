@@ -1,13 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, LogOut, Sun, Moon, Monitor, Check } from 'lucide-react'
+import { ChevronRight, LogOut, Sun, Moon, Monitor, Check, Bell, Smartphone } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { useToast } from '../context/ToastContext'
+import { usePrefs } from '../context/PrefsContext'
+import {
+  isIOS,
+  isStandalone,
+  notificationPermission,
+  notificationsSupported,
+  requestNotificationPermission,
+  showNotification,
+} from '../services/notifications'
 import { AVATARS, updateProfile } from '../services/profiles'
-import { getMyGroup, leaveGroup, renameGroup } from '../services/groups'
 import { humanError } from '../utils/errors'
-import { Skeleton, Spinner } from '../components/Skeleton'
+import { Spinner } from '../components/Skeleton'
+import InstallGuide from '../components/InstallGuide'
 
 const THEMES = [
   { id: 'light', label: '라이트', Icon: Sun },
@@ -24,11 +33,7 @@ export default function Settings() {
   const [nickname, setNickname] = useState('')
   const [avatar, setAvatar] = useState('🌱')
   const [saving, setSaving] = useState(false)
-  const [group, setGroup] = useState(null)
-  const [groupName, setGroupName] = useState('')
-  const [groupLoading, setGroupLoading] = useState(true)
-  const [leaving, setLeaving] = useState(false)
-  const [confirmLeave, setConfirmLeave] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (profile) {
@@ -36,17 +41,6 @@ export default function Settings() {
       setAvatar(profile.avatar || '🌱')
     }
   }, [profile])
-
-  useEffect(() => {
-    if (!user) return
-    getMyGroup(user.id)
-      .then((g) => {
-        setGroup(g)
-        setGroupName(g?.name ?? '')
-      })
-      .catch(() => {})
-      .finally(() => setGroupLoading(false))
-  }, [user])
 
   const dirty = profile && (nickname.trim() !== profile.nickname || avatar !== profile.avatar)
 
@@ -61,31 +55,6 @@ export default function Settings() {
       toast.error(humanError(e, '저장하지 못했습니다.'))
     } finally {
       setSaving(false)
-    }
-  }
-
-  async function saveGroupName() {
-    if (!groupName.trim()) return toast.error('그룹 이름을 입력해주세요.')
-    try {
-      await renameGroup(group.id, groupName)
-      setGroup({ ...group, name: groupName.trim() })
-      toast.success('그룹 이름을 바꿨습니다.')
-    } catch (e) {
-      toast.error(humanError(e, '그룹 이름을 바꾸지 못했습니다.'))
-    }
-  }
-
-  async function doLeave() {
-    setLeaving(true)
-    try {
-      await leaveGroup(user.id)
-      setGroup(null)
-      setConfirmLeave(false)
-      toast.success('그룹에서 나왔습니다.')
-    } catch (e) {
-      toast.error(humanError(e, '그룹을 나가지 못했습니다.'))
-    } finally {
-      setLeaving(false)
     }
   }
 
@@ -175,96 +144,53 @@ export default function Settings() {
         </div>
       </Section>
 
-      {/* 그룹 */}
-      <Section title="그룹">
-        {groupLoading ? (
-          <div className="px-5 py-5">
-            <Skeleton className="h-16 w-full" />
+      {/* 친구 */}
+      <Section title="친구">
+        <div className="px-5 py-5">
+          <p className="label">내 친구 코드</p>
+          <div className="flex items-center gap-3">
+            <p className="flex-1 text-xl font-black tracking-[0.22em] text-brand">
+              {profile?.friend_code ?? '······'}
+            </p>
+            <button
+              type="button"
+              disabled={!profile?.friend_code}
+              onClick={() => {
+                navigator.clipboard
+                  ?.writeText(profile.friend_code)
+                  .then(() => {
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 1800)
+                  })
+                  .catch(() => toast.info(`내 친구 코드: ${profile.friend_code}`))
+              }}
+              className="btn-ghost shrink-0 px-4 py-2.5 text-sm"
+            >
+              {copied ? '복사됨' : '복사'}
+            </button>
           </div>
-        ) : group ? (
-          <div className="px-5 py-5">
-            <label className="label" htmlFor="gname">
-              그룹 이름
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="gname"
-                className="field"
-                maxLength={20}
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-              />
-              {groupName.trim() !== group.name && (
-                <button type="button" onClick={saveGroupName} className="btn-ghost shrink-0 px-4">
-                  저장
-                </button>
-              )}
-            </div>
-            {group.created_by !== user.id && (
-              <p className="mt-2 text-xs text-muted">
-                그룹 이름은 그룹을 만든 사람만 바꿀 수 있습니다.
-              </p>
-            )}
-
-            <div className="mt-5">
-              <p className="label">초대 코드</p>
-              <p className="text-xl font-black tracking-[0.22em] text-brand">{group.invite_code}</p>
-            </div>
-
-            <div className="mt-6 border-t border-line pt-5">
-              {!confirmLeave ? (
-                <button
-                  type="button"
-                  onClick={() => setConfirmLeave(true)}
-                  className="text-sm font-semibold text-muted hover:text-ink"
-                >
-                  그룹 나가기
-                </button>
-              ) : (
-                <div>
-                  <p className="break-keep text-sm text-ink">
-                    그룹을 나가시겠어요? 나의 기록은 그대로 남습니다.
-                  </p>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={doLeave}
-                      className="btn-ghost flex-1 py-2.5 text-sm"
-                      disabled={leaving}
-                    >
-                      {leaving ? <Spinner /> : null}
-                      나가기
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmLeave(false)}
-                      className="btn-line flex-1 py-2.5 text-sm"
-                    >
-                      취소
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <Link
-            to="/friends"
-            className="flex items-center justify-between px-5 py-4 transition hover:bg-surface2"
-          >
-            <span className="text-sm font-semibold text-ink">그룹 만들기 · 참여하기</span>
-            <ChevronRight size={18} className="text-muted" aria-hidden="true" />
-          </Link>
-        )}
-      </Section>
-
-      {/* 알림 (추후) */}
-      <Section title="알림">
-        <div className="px-5 py-4">
-          <p className="text-sm text-muted">
-            저녁 알림 기능은 다음 단계에서 추가됩니다. 원하지 않으면 켜지 않아도 됩니다.
+          <p className="mt-3 break-keep text-xs leading-relaxed text-muted">
+            친구에게 이 코드를 알려주면 친구가 나를 추가할 수 있습니다.
           </p>
         </div>
+
+        <Link
+          to="/friends"
+          className="flex items-center justify-between border-t border-line px-5 py-4 transition hover:bg-surface2"
+        >
+          <span className="text-sm font-semibold text-ink">친구 추가 · 목록 관리</span>
+          <ChevronRight size={18} className="text-muted" aria-hidden="true" />
+        </Link>
+      </Section>
+
+      {/* 알림 */}
+      <Section title="알림">
+        <ReminderSettings />
+      </Section>
+
+      {/* 기록 */}
+      <Section title="기록">
+        <PastEditSetting />
       </Section>
 
       <button
@@ -286,5 +212,150 @@ function Section({ title, children }) {
       <h2 className="mb-2 px-1 text-xs font-bold tracking-wider text-muted">{title}</h2>
       <div className="card overflow-hidden">{children}</div>
     </section>
+  )
+}
+
+function Toggle({ checked, onChange, label }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+        checked ? 'bg-brand' : 'bg-line'
+      }`}
+    >
+      <span
+        className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${
+          checked ? 'left-6' : 'left-1'
+        }`}
+      />
+    </button>
+  )
+}
+
+function ReminderSettings() {
+  const { reminderEnabled, reminderTime, setPref } = usePrefs()
+  const toast = useToast()
+  const [permission, setPermission] = useState(notificationPermission())
+
+  const supported = notificationsSupported()
+  const iosNeedsInstall = isIOS() && !isStandalone()
+
+  async function toggleReminder(next) {
+    if (!next) {
+      setPref('reminderEnabled', false)
+      return
+    }
+
+    if (!supported) {
+      toast.error('이 브라우저는 알림을 지원하지 않습니다.')
+      return
+    }
+    if (iosNeedsInstall) {
+      toast.error('아이폰에서는 홈 화면에 추가한 앱에서만 알림을 켤 수 있습니다.')
+      return
+    }
+
+    const result = await requestNotificationPermission()
+    setPermission(result)
+
+    if (result === 'granted') {
+      setPref('reminderEnabled', true)
+      toast.success('알림을 켰습니다.')
+    } else if (result === 'denied') {
+      toast.error('알림이 차단되어 있습니다. 브라우저 설정에서 허용해주세요.')
+    }
+  }
+
+  return (
+    <div className="px-5 py-5">
+      <div className="flex items-start gap-3">
+        <Bell size={18} className="mt-0.5 shrink-0 text-muted" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-ink">저녁에 알려주기</p>
+          <p className="mt-1 break-keep text-xs leading-relaxed text-muted">
+            정한 시각에 오늘 남은 약속 개수를 알려줍니다. 다 했으면 알리지 않아요.
+          </p>
+        </div>
+        <Toggle checked={reminderEnabled} onChange={toggleReminder} label="저녁 알림" />
+      </div>
+
+      {reminderEnabled && (
+        <div className="mt-5 flex items-center justify-between gap-3 border-t border-line pt-5">
+          <label className="text-sm font-semibold text-ink" htmlFor="rtime">
+            알림 시각
+          </label>
+          <input
+            id="rtime"
+            type="time"
+            value={reminderTime}
+            onChange={(e) => setPref('reminderTime', e.target.value)}
+            className="rounded-xl2 border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink outline-none focus:border-brand"
+          />
+        </div>
+      )}
+
+      {reminderEnabled && permission === 'granted' && (
+        <button
+          type="button"
+          onClick={() =>
+            showNotification('내일의 나', '알림은 이렇게 표시됩니다.').then((ok) => {
+              if (!ok) toast.error('알림을 띄우지 못했습니다.')
+            })
+          }
+          className="mt-4 text-sm font-semibold text-brand hover:underline"
+        >
+          테스트 알림 보내기
+        </button>
+      )}
+
+      <p className="mt-5 break-keep rounded-xl2 bg-surface2 px-4 py-3 text-xs leading-relaxed text-muted">
+        {iosNeedsInstall ? (
+          <>
+            아이폰은 <b className="text-ink">홈 화면에 추가한 앱</b>에서만 알림을 받을 수 있습니다.
+            사파리에서 공유 버튼 → "홈 화면에 추가" 를 먼저 해주세요.
+          </>
+        ) : (
+          <>
+            지금은 <b className="text-ink">앱이 열려 있는 동안</b>에만 알림이 옵니다. 앱을 완전히
+            종료하면 오지 않아요. 앱을 꺼도 오는 진짜 푸시 알림은 다음 단계에서 추가할 수 있습니다.
+          </>
+        )}
+      </p>
+    </div>
+  )
+}
+
+function PastEditSetting() {
+  const { allowPastEdit, setPref } = usePrefs()
+
+  return (
+    <div className="px-5 py-5">
+      <div className="flex items-start gap-3">
+        <Smartphone size={18} className="mt-0.5 shrink-0 text-muted" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-ink">지난 날짜 수정 허용</p>
+          <p className="mt-1 break-keep text-xs leading-relaxed text-muted">
+            켜면 기록 화면의 달력에서 지난 날짜를 골라 체크를 고칠 수 있습니다. 깜빡하고 못 누른 걸
+            채우는 용도예요.
+          </p>
+        </div>
+        <Toggle
+          checked={allowPastEdit}
+          onChange={(v) => setPref('allowPastEdit', v)}
+          label="지난 날짜 수정 허용"
+        />
+      </div>
+
+      {allowPastEdit && (
+        <p className="mt-4 break-keep rounded-xl2 bg-surface2 px-4 py-3 text-xs leading-relaxed text-muted">
+          지난 기록을 고치면 연속 기록과 달성률도 함께 다시 계산됩니다. 스스로에게 솔직한 쪽이
+          나중에 돌아볼 때 더 도움이 돼요.
+        </p>
+      )}
+    </div>
   )
 }

@@ -31,12 +31,31 @@
 
   html {
     -webkit-tap-highlight-color: transparent;
+    /* 더블탭 확대 방지 — 체크 버튼을 빠르게 두 번 눌러도 화면이 튀지 않게 */
+    touch-action: manipulation;
   }
 
   body {
     @apply bg-bg text-ink font-sans antialiased;
     margin: 0;
     min-height: 100dvh;
+    /* 홈화면 앱에서 끝까지 스크롤했을 때 화면이 늘어나는 느낌 제거 */
+    overscroll-behavior-y: none;
+  }
+
+  /* 홈화면에 추가해 앱처럼 실행 중일 때 */
+  @media (display-mode: standalone) {
+    body {
+      /* 글자를 길게 눌렀을 때 나오는 메뉴 억제 (입력창은 제외) */
+      -webkit-touch-callout: none;
+    }
+
+    input,
+    textarea {
+      -webkit-touch-callout: default;
+      -webkit-user-select: text;
+      user-select: text;
+    }
   }
 
   /* 키보드 사용자에게만 포커스 링 */
@@ -80,6 +99,17 @@
 
   .label {
     @apply block text-sm font-semibold text-muted mb-2;
+  }
+
+  /* 하단 네비게이션에 가리지 않도록. 아이폰 홈 인디케이터 영역까지 고려한다. */
+  .pb-nav {
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+  }
+
+  @media (min-width: 1024px) {
+    .pb-nav {
+      padding-bottom: 3.5rem;
+    }
   }
 
   .skeleton {

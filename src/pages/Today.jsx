@@ -4,10 +4,11 @@ import { Flame, Trophy, ChevronRight, PartyPopper } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useToday } from '../hooks/useToday'
+import { useFriendChannels } from '../hooks/useFriendChannels'
 import { listRules } from '../services/rules'
 import { checkRule, listRecords, listAllDailyStats, uncheckRule } from '../services/records'
 import { computeStats } from '../services/stats'
-import { getMyGroup, getGroupStats, myCheers, cheerLabel } from '../services/groups'
+import { getFriendStats, myCheers, cheerLabel } from '../services/friends'
 import { formatKorean, greeting } from '../utils/date'
 import {
   quoteOfTheDay,
@@ -35,8 +36,7 @@ export default function Today() {
   const [rules, setRules] = useState([])
   const [doneIds, setDoneIds] = useState(new Set())
   const [dailyStats, setDailyStats] = useState([])
-  const [group, setGroup] = useState(null)
-  const [members, setMembers] = useState([])
+  const [people, setPeople] = useState([]) // 나 + 친구들
   const [cheers, setCheers] = useState([])
   const [busyId, setBusyId] = useState(null)
   const [overlay, setOverlay] = useState(null)
@@ -59,19 +59,9 @@ export default function Today() {
       const todayStat = stats.find((s) => s.date === today)
       if (todayStat?.is_complete) celebratedRef.current = true
 
-      const g = await getMyGroup(user.id)
-      setGroup(g)
-      if (g) {
-        const [memberStats, received] = await Promise.all([
-          getGroupStats(g.id, today),
-          myCheers(today),
-        ])
-        setMembers(memberStats)
-        setCheers(received)
-      } else {
-        setMembers([])
-        setCheers([])
-      }
+      const [friendStats, received] = await Promise.all([getFriendStats(today), myCheers(today)])
+      setPeople(friendStats)
+      setCheers(received)
     } catch (e) {
       toast.error(humanError(e, '기록을 불러오지 못했습니다. 화면을 새로고침해주세요.'))
     } finally {
@@ -84,6 +74,23 @@ export default function Today() {
     celebratedRef.current = false
     load()
   }, [load])
+
+  // 친구가 체크하면 내 화면의 '친구들의 오늘' 도 바로 바뀐다
+  const refreshFriends = useCallback(async () => {
+    try {
+      const [friendStats, received] = await Promise.all([getFriendStats(today), myCheers(today)])
+      setPeople(friendStats)
+      setCheers(received)
+    } catch {
+      /* 실시간 갱신 실패는 조용히 넘어간다 — 다음에 열면 최신이 된다 */
+    }
+  }, [today])
+
+  const friendIds = useMemo(
+    () => people.filter((p) => !p.isMe).map((p) => p.userId),
+    [people]
+  )
+  const pingFriends = useFriendChannels(user?.id ?? null, friendIds, refreshFriends)
 
   const doneCount = doneIds.size
   const total = rules.length || 10
@@ -140,6 +147,9 @@ export default function Today() {
       // 집계는 DB 트리거가 갱신하므로 다시 읽어온다
       const fresh = await listAllDailyStats(user.id)
       setDailyStats(fresh)
+
+      // 친구들 화면도 갱신되도록 신호를 보낸다 (내용은 보내지 않는다)
+      pingFriends()
     } catch (e) {
       setDoneIds(doneIds) // 롤백
       toast.error(humanError(e, '저장하지 못했습니다. 잠시 후 다시 시도해주세요.'))
@@ -252,7 +262,7 @@ export default function Today() {
       <QuoteCard text={quote.text} question={questionOfTheDay(today)} />
 
       {/* 친구들의 오늘 */}
-      <FriendsPreview group={group} members={members} meId={user.id} />
+      <FriendsPreview people={people} />
 
       <CompleteOverlay
         open={Boolean(overlay)}
@@ -320,16 +330,18 @@ function StreakBanner({ stats, liveStreak, liveComplete }) {
   )
 }
 
-function FriendsPreview({ group, members, meId }) {
-  if (!group) {
+function FriendsPreview({ people }) {
+  const hasFriends = people.some((p) => !p.isMe)
+
+  if (!hasFriends) {
     return (
       <EmptyState
         emoji="🤝"
-        title="아직 그룹이 없습니다"
-        description="친구와 함께하면 서로의 꾸준함을 볼 수 있어요. 최대 4명까지 가능합니다."
+        title="아직 친구가 없습니다"
+        description="친구와 함께하면 서로의 꾸준함을 볼 수 있어요. 친구 코드를 주고받으면 됩니다."
         action={
           <Link to="/friends" className="btn-line">
-            그룹 만들거나 참여하기
+            친구 추가하기
           </Link>
         }
       />
@@ -344,39 +356,31 @@ function FriendsPreview({ group, members, meId }) {
           to="/friends"
           className="inline-flex items-center gap-0.5 text-xs font-semibold text-brand hover:underline"
         >
-          {group.name} <ChevronRight size={14} aria-hidden="true" />
+          전체 보기 <ChevronRight size={14} aria-hidden="true" />
         </Link>
       </div>
 
-      {members.length <= 1 ? (
-        <EmptyState
-          emoji="✉️"
-          title="아직 그룹원이 없습니다"
-          description={`친구에게 초대 코드 ${group.invite_code} 를 보내보세요.`}
-        />
-      ) : (
-        <div className="card divide-y divide-line">
-          {members.map((m) => (
-            <div key={m.userId} className="flex items-center gap-3 px-4 py-3">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface2 text-base">
-                {m.avatar}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
-                {m.nickname}
-                {m.userId === meId && <span className="ml-1.5 text-xs text-muted">(나)</span>}
-              </span>
-              <span className="shrink-0 text-sm font-bold tabular-nums text-ink">
-                {m.todayCount}
-                <span className="text-muted"> / {m.todayTotal}</span>
-              </span>
-              <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-semibold tabular-nums text-brand">
-                <Flame size={12} aria-hidden="true" />
-                {m.currentStreak}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="card divide-y divide-line">
+        {people.map((m) => (
+          <div key={m.userId} className="flex items-center gap-3 px-4 py-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface2 text-base">
+              {m.avatar}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+              {m.nickname}
+              {m.isMe && <span className="ml-1.5 text-xs text-muted">(나)</span>}
+            </span>
+            <span className="shrink-0 text-sm font-bold tabular-nums text-ink">
+              {m.todayCount}
+              <span className="text-muted"> / {m.todayTotal}</span>
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-semibold tabular-nums text-brand">
+              <Flame size={12} aria-hidden="true" />
+              {m.currentStreak}
+            </span>
+          </div>
+        ))}
+      </div>
     </section>
   )
 }

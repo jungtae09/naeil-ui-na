@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { humanError } from '../utils/errors'
@@ -11,6 +11,11 @@ export default function Login() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // 앱을 쓰던 중에 로그인이 풀려서 넘어온 경우 — 왜 넘어왔는지 알려준다
+  const from = location.state?.from
+  const kickedOut = Boolean(from && from !== '/' && from !== '/login')
 
   async function onSubmit(e) {
     e.preventDefault()
@@ -42,6 +47,12 @@ export default function Login() {
 
       <h1 className="text-2xl font-extrabold tracking-tight text-ink">다시 오셨네요</h1>
       <p className="mt-2 text-sm text-muted">오늘의 약속이 기다리고 있어요.</p>
+
+      {kickedOut && (
+        <p className="mt-5 break-keep rounded-xl2 bg-surface2 px-4 py-3 text-sm leading-relaxed text-muted">
+          로그인이 만료되어 다시 로그인이 필요합니다. 기록은 그대로 남아 있어요.
+        </p>
+      )}
 
       <form onSubmit={onSubmit} className="mt-8 space-y-4" noValidate>
         <div>

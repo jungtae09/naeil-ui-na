@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowRight, ArrowLeft, Users, UserPlus, Copy, Check } from 'lucide-react'
+import { ArrowRight, ArrowLeft, UserPlus, Copy, Check } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { AVATARS, updateProfile } from '../services/profiles'
 import { DEFAULT_RULES, RULE_COUNT, createRules, listRules } from '../services/rules'
-import { createGroup, joinGroup, getMyGroup } from '../services/groups'
+import { sendFriendRequest } from '../services/friends'
 import { humanError } from '../utils/errors'
 import { Spinner } from '../components/Skeleton'
 
-const STEPS = ['intro', 'profile', 'rules', 'group', 'done']
+const STEPS = ['intro', 'profile', 'rules', 'friends', 'done']
 
 export default function Onboarding() {
   const { user, profile, setProfile } = useAuth()
@@ -22,7 +22,7 @@ export default function Onboarding() {
   const [nickname, setNickname] = useState('')
   const [avatar, setAvatar] = useState('🌱')
   const [rules, setRules] = useState(DEFAULT_RULES.map((t) => ({ title: t })))
-  const [group, setGroup] = useState(null)
+  const [addedFriend, setAddedFriend] = useState(null)
 
   useEffect(() => {
     if (profile) {
@@ -38,9 +38,6 @@ export default function Onboarding() {
       .then((existing) => {
         if (existing.length > 0) setRules(existing.map((r) => ({ id: r.id, title: r.title })))
       })
-      .catch(() => {})
-    getMyGroup(user.id)
-      .then((g) => g && setGroup(g))
       .catch(() => {})
   }, [user])
 
@@ -75,7 +72,7 @@ export default function Onboarding() {
       if (existing.length === 0) {
         await createRules(user.id, filled)
       }
-      setStep('group')
+      setStep('friends')
     } catch (e) {
       toast.error(humanError(e, '약속을 저장하지 못했습니다.'))
     } finally {
@@ -128,19 +125,18 @@ export default function Onboarding() {
           />
         )}
 
-        {step === 'group' && (
-          <GroupStep
-            group={group}
-            setGroup={setGroup}
-            userId={user.id}
+        {step === 'friends' && (
+          <FriendStep
+            myCode={profile?.friend_code}
+            added={addedFriend}
+            setAdded={setAddedFriend}
             busy={busy}
             setBusy={setBusy}
-            onSkip={() => setStep('done')}
             onNext={() => setStep('done')}
           />
         )}
 
-        {step === 'done' && <DoneStep busy={busy} onFinish={finish} group={group} />}
+        {step === 'done' && <DoneStep busy={busy} onFinish={finish} added={addedFriend} />}
       </div>
     </div>
   )
@@ -205,7 +201,7 @@ function ProfileStep({ nickname, setNickname, avatar, setAvatar, busy, onNext })
           placeholder="정태"
           onChange={(e) => setNickname(e.target.value)}
         />
-        <p className="mt-2 text-xs text-muted">그룹원에게 이 이름이 보입니다.</p>
+        <p className="mt-2 text-xs text-muted">친구에게 이 이름이 보입니다.</p>
       </div>
 
       <div className="mt-7">
@@ -285,165 +281,105 @@ function RulesStep({ rules, setRules, busy, onBack, onNext }) {
   )
 }
 
-function GroupStep({ group, setGroup, userId, busy, setBusy, onSkip, onNext }) {
+function FriendStep({ myCode, added, setAdded, busy, setBusy, onNext }) {
   const toast = useToast()
-  const [mode, setMode] = useState(null) // 'create' | 'join'
-  const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [copied, setCopied] = useState(false)
 
-  async function doCreate() {
-    if (!name.trim()) return toast.error('그룹 이름을 입력해주세요.')
-    setBusy(true)
-    try {
-      const g = await createGroup(name)
-      setGroup(g)
-    } catch (e) {
-      toast.error(humanError(e, '그룹을 만들지 못했습니다.'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function doJoin() {
-    if (code.trim().length < 4) return toast.error('초대 코드를 입력해주세요.')
-    setBusy(true)
-    try {
-      await joinGroup(code)
-      const g = await getMyGroup(userId)
-      setGroup(g)
-      toast.success('그룹에 참여했습니다.')
-    } catch (e) {
-      toast.error(humanError(e, '참여하지 못했습니다.'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   function copy() {
+    if (!myCode) return
     navigator.clipboard
-      ?.writeText(group.invite_code)
+      ?.writeText(myCode)
       .then(() => {
         setCopied(true)
         setTimeout(() => setCopied(false), 1800)
       })
-      .catch(() => toast.info(`초대 코드: ${group.invite_code}`))
+      .catch(() => toast.info(`내 친구 코드: ${myCode}`))
   }
 
-  if (group) {
-    return (
-      <div className="animate-fadeUp text-center">
-        <div className="text-4xl" aria-hidden="true">
-          🤝
-        </div>
-        <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink">{group.name}</h1>
-        <p className="mt-2 text-sm text-muted">준비됐습니다.</p>
-
-        <div className="card mt-7 px-6 py-7">
-          <p className="text-xs font-bold tracking-widest text-muted">초대 코드</p>
-          <p className="mt-2 text-3xl font-black tracking-[0.25em] text-brand">
-            {group.invite_code}
-          </p>
-          <button type="button" onClick={copy} className="btn-ghost mt-5 w-full">
-            {copied ? <Check size={17} aria-hidden="true" /> : <Copy size={17} aria-hidden="true" />}
-            {copied ? '복사했어요' : '코드 복사하기'}
-          </button>
-          <p className="mt-4 break-keep text-xs leading-relaxed text-muted">
-            친구들에게 이 코드를 알려주세요. 최대 4명까지 함께할 수 있어요.
-          </p>
-        </div>
-
-        <button type="button" onClick={onNext} className="btn-primary mt-7 w-full">
-          다음
-        </button>
-      </div>
-    )
+  async function add(e) {
+    e.preventDefault()
+    if (code.trim().length < 4) return toast.error('친구 코드를 입력해주세요.')
+    setBusy(true)
+    try {
+      const result = await sendFriendRequest(code)
+      setCode('')
+      setAdded(result)
+      toast.success(
+        result.status === 'accepted'
+          ? `${result.nickname}님과 친구가 되었습니다.`
+          : `${result.nickname}님에게 친구 요청을 보냈습니다.`
+      )
+    } catch (err) {
+      toast.error(humanError(err, '친구를 추가하지 못했습니다.'))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
     <div className="animate-fadeUp">
       <h1 className="text-2xl font-extrabold tracking-tight text-ink">친구와 함께할까요?</h1>
       <p className="mt-2 break-keep text-sm leading-relaxed text-muted">
-        최대 4명이 한 그룹에서 서로의 꾸준함을 볼 수 있어요. 지금 안 해도 나중에 설정에서 할 수
-        있습니다.
+        서로의 꾸준함을 볼 수 있어요. 지금 안 해도 나중에 친구 탭에서 언제든 추가할 수 있습니다.
       </p>
 
-      {!mode && (
-        <div className="mt-8 space-y-2.5">
-          <button type="button" onClick={() => setMode('create')} className="btn-line w-full py-4">
-            <Users size={18} aria-hidden="true" /> 새로운 그룹 만들기
-          </button>
-          <button type="button" onClick={() => setMode('join')} className="btn-line w-full py-4">
-            <UserPlus size={18} aria-hidden="true" /> 초대 코드로 참여하기
-          </button>
-          <button
-            type="button"
-            onClick={onSkip}
-            className="w-full py-3 text-sm font-semibold text-muted hover:text-ink"
-          >
-            혼자 시작할게요
-          </button>
-        </div>
-      )}
+      <section className="card mt-7 px-6 py-6 text-center">
+        <p className="text-xs font-bold tracking-widest text-muted">내 친구 코드</p>
+        <p className="mt-2 text-3xl font-black tracking-[0.25em] text-brand">{myCode ?? '······'}</p>
+        <button type="button" onClick={copy} className="btn-ghost mt-5 w-full" disabled={!myCode}>
+          {copied ? <Check size={17} aria-hidden="true" /> : <Copy size={17} aria-hidden="true" />}
+          {copied ? '복사했어요' : '코드 복사하기'}
+        </button>
+        <p className="mt-4 break-keep text-xs leading-relaxed text-muted">
+          친구에게 이 코드를 알려주면 친구가 나를 추가할 수 있어요.
+        </p>
+      </section>
 
-      {mode === 'create' && (
-        <div className="mt-8">
-          <label className="label" htmlFor="gname">
-            그룹 이름
-          </label>
+      <form onSubmit={add} className="mt-4">
+        <label className="label" htmlFor="fcode">
+          친구에게 받은 코드가 있다면
+        </label>
+        <div className="flex gap-2">
           <input
-            id="gname"
-            className="field"
-            maxLength={20}
-            value={name}
-            placeholder="우리들의 약속"
-            onChange={(e) => setName(e.target.value)}
-          />
-          <button type="button" onClick={doCreate} className="btn-primary mt-5 w-full" disabled={busy}>
-            {busy ? <Spinner /> : null}
-            그룹 만들기
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode(null)}
-            className="mt-3 w-full py-2 text-sm font-semibold text-muted hover:text-ink"
-          >
-            뒤로
-          </button>
-        </div>
-      )}
-
-      {mode === 'join' && (
-        <div className="mt-8">
-          <label className="label" htmlFor="gcode">
-            초대 코드
-          </label>
-          <input
-            id="gcode"
-            className="field text-center text-xl font-black tracking-[0.3em] uppercase"
+            id="fcode"
+            className="field text-center text-lg font-black uppercase tracking-[0.25em]"
             maxLength={6}
             value={code}
             placeholder="7K4P2A"
+            autoComplete="off"
             onChange={(e) => setCode(e.target.value.toUpperCase())}
           />
-          <button type="button" onClick={doJoin} className="btn-primary mt-5 w-full" disabled={busy}>
-            {busy ? <Spinner /> : null}
-            참여하기
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode(null)}
-            className="mt-3 w-full py-2 text-sm font-semibold text-muted hover:text-ink"
-          >
-            뒤로
+          <button type="submit" className="btn-primary shrink-0 px-5" disabled={busy}>
+            {busy ? <Spinner /> : <UserPlus size={17} aria-hidden="true" />}
+            <span className="sr-only">추가</span>
           </button>
         </div>
+      </form>
+
+      {added && (
+        <p className="mt-4 rounded-xl2 bg-doneSoft px-4 py-3 text-sm font-medium text-done">
+          {added.status === 'accepted'
+            ? `${added.nickname}님과 친구가 되었습니다.`
+            : `${added.nickname}님의 수락을 기다리는 중입니다.`}
+        </p>
       )}
+
+      <button type="button" onClick={onNext} className="btn-primary mt-7 w-full">
+        다음
+      </button>
+      <button
+        type="button"
+        onClick={onNext}
+        className="mt-2 w-full py-3 text-sm font-semibold text-muted hover:text-ink"
+      >
+        나중에 할게요
+      </button>
     </div>
   )
 }
 
-function DoneStep({ busy, onFinish, group }) {
+function DoneStep({ busy, onFinish, added }) {
   return (
     <div className="animate-fadeUp py-10 text-center">
       <div className="text-5xl" aria-hidden="true">
@@ -451,9 +387,9 @@ function DoneStep({ busy, onFinish, group }) {
       </div>
       <h1 className="mt-6 text-2xl font-extrabold tracking-tight text-ink">준비됐습니다</h1>
       <p className="mx-auto mt-3 max-w-[16rem] break-keep text-sm leading-relaxed text-muted">
-        {group
+        {added
           ? '오늘의 열 가지를 확인하고 하나씩 체크해보세요.'
-          : '먼저 혼자 시작해도 괜찮아요. 친구는 언제든 초대할 수 있습니다.'}
+          : '먼저 혼자 시작해도 괜찮아요. 친구는 언제든 추가할 수 있습니다.'}
       </p>
 
       <button type="button" onClick={onFinish} className="btn-primary mt-9 w-full" disabled={busy}>

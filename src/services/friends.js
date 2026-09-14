@@ -1,67 +1,82 @@
 import { supabase } from '../lib/supabase'
 
-/** 내가 속한 그룹 (없으면 null) */
-export async function getMyGroup(userId) {
-  const { data: membership, error } = await supabase
-    .from('group_members')
-    .select('group_id, joined_at')
-    .eq('user_id', userId)
-    .maybeSingle()
+export const MAX_FRIENDS = 20
 
-  if (error) throw error
-  if (!membership) return null
-
-  const { data: group, error: groupError } = await supabase
-    .from('groups')
-    .select('id, name, invite_code, created_by, created_at')
-    .eq('id', membership.group_id)
-    .maybeSingle()
-
-  if (groupError) throw groupError
-  return group
-}
-
-export async function createGroup(name) {
-  const { data, error } = await supabase.rpc('create_group', { p_name: name })
-  if (error) throw error
-  const row = Array.isArray(data) ? data[0] : data
-  return { id: row.group_id, name: row.group_name, invite_code: row.code }
-}
-
-export async function joinGroup(code) {
-  const { data, error } = await supabase.rpc('join_group_by_code', {
+/**
+ * 친구 요청 보내기 (친구 코드로).
+ * 상대가 이미 나에게 요청을 보내둔 상태였다면 바로 친구가 된다.
+ * @returns {{ status: 'pending'|'accepted', nickname: string, userId: string }}
+ */
+export async function sendFriendRequest(code) {
+  const { data, error } = await supabase.rpc('send_friend_request', {
     p_code: (code ?? '').trim().toUpperCase(),
   })
   if (error) throw error
-  return data // group id
+
+  const row = Array.isArray(data) ? data[0] : data
+  return {
+    status: row?.result_status ?? 'pending',
+    userId: row?.other_id,
+    nickname: row?.other_nickname ?? '친구',
+  }
 }
 
-export async function leaveGroup(userId) {
-  const { error } = await supabase.from('group_members').delete().eq('user_id', userId)
+/** 받은 요청 + 보낸 요청 */
+export async function listFriendRequests() {
+  const { data, error } = await supabase.rpc('my_friend_requests')
+  if (error) throw error
+
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    direction: r.direction, // 'incoming' | 'outgoing'
+    userId: r.other_id,
+    nickname: r.nickname || '이름 없음',
+    avatar: r.avatar || '🌱',
+    createdAt: r.created_at,
+  }))
+}
+
+/** 받은 요청 수락 */
+export async function acceptFriendRequest(requestId) {
+  const { error } = await supabase
+    .from('friendships')
+    .update({ status: 'accepted', responded_at: new Date().toISOString() })
+    .eq('id', requestId)
   if (error) throw error
 }
 
-export async function renameGroup(groupId, name) {
-  const { error } = await supabase.from('groups').update({ name: name.trim() }).eq('id', groupId)
+/** 요청 거절 / 보낸 요청 취소 — 둘 다 줄을 지우면 된다 */
+export async function deleteFriendRequest(requestId) {
+  const { error } = await supabase.from('friendships').delete().eq('id', requestId)
+  if (error) throw error
+}
+
+/** 친구 끊기 */
+export async function removeFriend(myId, friendId) {
+  const { error } = await supabase
+    .from('friendships')
+    .delete()
+    .or(
+      `and(requester_id.eq.${myId},addressee_id.eq.${friendId}),` +
+        `and(requester_id.eq.${friendId},addressee_id.eq.${myId})`
+    )
   if (error) throw error
 }
 
 /**
- * 그룹원 공개 통계.
- * 서버(RPC)에서 공개 가능한 값만 계산해서 내려준다.
+ * 나 + 내 친구들의 공개 통계.
+ * 서버에서 공개 가능한 값만 계산해서 내려준다.
  * 규칙 내용 · 회고 · 날짜별 상세 기록은 절대 포함되지 않는다.
  */
-export async function getGroupStats(groupId, todayYmd) {
-  const { data, error } = await supabase.rpc('group_member_stats', {
-    p_group_id: groupId,
-    p_today: todayYmd,
-  })
+export async function getFriendStats(todayYmd) {
+  const { data, error } = await supabase.rpc('friend_stats', { p_today: todayYmd })
   if (error) throw error
 
   return (data ?? []).map((r) => ({
     userId: r.user_id,
     nickname: r.nickname || '이름 없음',
     avatar: r.avatar || '🌱',
+    isMe: Boolean(r.is_me),
     todayCount: r.today_count ?? 0,
     todayTotal: r.today_total ?? 10,
     todayComplete: Boolean(r.today_complete),
@@ -76,6 +91,8 @@ export async function getGroupStats(groupId, todayYmd) {
   }))
 }
 
+/* ---------------- 응원 ---------------- */
+
 export const CHEERS = [
   { type: 'good', emoji: '👏', label: '잘하고 있어!' },
   { type: 'fire', emoji: '🔥', label: '계속 가자!' },
@@ -84,11 +101,10 @@ export const CHEERS = [
   { type: 'congrats', emoji: '🎉', label: '오늘 완주 축하!' },
 ]
 
-export async function sendCheer({ senderId, receiverId, groupId, type, ymd }) {
+export async function sendCheer({ senderId, receiverId, type, ymd }) {
   const { error } = await supabase.from('encouragements').insert({
     sender_id: senderId,
     receiver_id: receiverId,
-    group_id: groupId,
     message_type: type,
     date: ymd,
   })

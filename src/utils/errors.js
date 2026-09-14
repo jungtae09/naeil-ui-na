@@ -29,13 +29,20 @@ const MAP = [
   ['JWT expired', '로그인이 만료되었습니다. 다시 로그인해주세요.'],
   ['session_not_found', '로그인이 만료되었습니다. 다시 로그인해주세요.'],
 
-  // 그룹 RPC
-  ['GROUP_FULL', '이 그룹은 이미 4명이 모두 찼습니다.'],
-  ['ALREADY_IN_GROUP', '이미 다른 그룹에 참여 중입니다. 설정에서 그룹을 나간 뒤 참여해주세요.'],
-  ['INVALID_CODE', '존재하지 않는 초대 코드입니다. 코드를 다시 확인해주세요.'],
-  ['INVALID_NAME', '그룹 이름을 입력해주세요.'],
-  ['NOT_A_MEMBER', '이 그룹의 멤버가 아닙니다.'],
+  // 친구
+  ['INVALID_CODE', '존재하지 않는 친구 코드입니다. 코드를 다시 확인해주세요.'],
+  ['CANNOT_ADD_SELF', '내 코드는 추가할 수 없어요. 친구에게 받은 코드를 입력해주세요.'],
+  ['ALREADY_FRIENDS', '이미 친구입니다.'],
+  ['REQUEST_ALREADY_SENT', '이미 요청을 보냈습니다. 상대의 수락을 기다려주세요.'],
+  ['TOO_MANY_FRIENDS', '친구는 최대 20명까지 추가할 수 있습니다.'],
+  ['friendships_pair_unique', '이미 요청을 보냈거나 친구인 상대입니다.'],
+  ['friendships_no_self', '자기 자신은 친구로 추가할 수 없습니다.'],
   ['NOT_AUTHENTICATED', '로그인이 필요합니다.'],
+
+  // 그룹 (옛 기능)
+  ['GROUP_FULL', '이 그룹은 이미 4명이 모두 찼습니다.'],
+  ['ALREADY_IN_GROUP', '이미 다른 그룹에 참여 중입니다.'],
+  ['NOT_A_MEMBER', '이 그룹의 멤버가 아닙니다.'],
 
   // DB
   ['duplicate key value', '이미 기록되어 있습니다.'],

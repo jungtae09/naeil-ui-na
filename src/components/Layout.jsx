@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { Home, BarChart3, Users, CalendarDays, Settings } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import { useReminder } from '../hooks/useReminder'
 
 const TABS = [
   { to: '/today', label: '홈', Icon: Home },
@@ -10,6 +12,11 @@ const TABS = [
 ]
 
 export default function Layout() {
+  const { user } = useAuth()
+
+  // 설정한 시각에 남은 약속을 알려준다 (기본 꺼짐)
+  useReminder(user?.id ?? null)
+
   return (
     <div className="min-h-dvh lg:flex">
       {/* PC: 사이드바 */}
@@ -38,7 +45,7 @@ export default function Layout() {
       </aside>
 
       {/* 본문 */}
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-28 pt-6 sm:px-6 lg:pb-14 lg:pt-10">
+      <main className="pb-nav mx-auto w-full max-w-2xl flex-1 px-4 pt-6 sm:px-6 lg:pt-10">
         <Outlet />
       </main>
 

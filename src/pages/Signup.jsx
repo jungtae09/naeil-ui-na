@@ -33,7 +33,13 @@ export default function Signup() {
     const { data, error: authError } = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: { data: { nickname: nickname.trim() } },
+      options: {
+        data: { nickname: nickname.trim() },
+        // 인증 메일의 링크가 '지금 접속한 주소' 로 돌아오게 한다.
+        // (이게 없으면 Supabase 에 설정된 Site URL 로 가는데,
+        //  그게 localhost 로 남아 있으면 폰에서 링크가 열리지 않는다)
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
     })
 
     if (authError) {
@@ -45,7 +51,8 @@ export default function Signup() {
     // 이메일 확인이 켜져 있으면 세션이 바로 생기지 않는다.
     if (!data.session) {
       setNotice(
-        '가입 확인 메일을 보냈습니다. 메일함에서 링크를 눌러 인증한 뒤 로그인해주세요.'
+        '가입 확인 메일을 보냈습니다. 메일함(스팸함도)에서 링크를 눌러주세요.\n' +
+          '링크를 누른 뒤에는 방금 입력한 이메일과 비밀번호로 로그인하면 됩니다.'
       )
       setBusy(false)
       return
@@ -127,7 +134,7 @@ export default function Signup() {
         {notice && (
           <p
             role="status"
-            className="rounded-xl2 bg-doneSoft px-4 py-3 text-sm font-medium text-done"
+            className="whitespace-pre-line rounded-xl2 bg-doneSoft px-4 py-3 text-sm font-medium text-done"
           >
             {notice}
           </p>

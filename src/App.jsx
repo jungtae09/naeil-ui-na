@@ -16,6 +16,7 @@ import Weekly from './pages/Weekly'
 import Settings from './pages/Settings'
 import RulesEdit from './pages/RulesEdit'
 import NotConfigured from './pages/NotConfigured'
+import AuthCallback from './pages/AuthCallback'
 
 function FullScreenLoader() {
   return (
@@ -81,6 +82,9 @@ export default function App() {
           </PublicOnly>
         }
       />
+
+      {/* 메일 인증 링크가 돌아오는 자리. 로그인 여부와 무관하게 열려 있어야 한다 */}
+      <Route path="/auth/callback" element={<AuthCallback />} />
 
       <Route
         path="/onboarding"

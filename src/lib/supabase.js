@@ -53,14 +53,52 @@ if (!isConfigured) {
   )
 }
 
+/**
+ * 로그인 정보를 담아두는 저장소.
+ *
+ * 사파리 사생활 보호 모드처럼 localStorage 가 아예 던져버리는 환경이 있는데,
+ * 그대로 두면 로그인 자체가 깨진다. 그래서 실패하면 메모리에라도 담아
+ * 최소한 그 세션 동안은 정상 동작하게 한다.
+ */
+const memoryStore = new Map()
+
+const safeStorage = {
+  getItem(key) {
+    try {
+      const v = window.localStorage.getItem(key)
+      return v ?? memoryStore.get(key) ?? null
+    } catch {
+      return memoryStore.get(key) ?? null
+    }
+  },
+  setItem(key, value) {
+    memoryStore.set(key, value)
+    try {
+      window.localStorage.setItem(key, value)
+    } catch {
+      /* 저장은 못 해도 이번 세션은 메모리로 버틴다 */
+    }
+  },
+  removeItem(key) {
+    memoryStore.delete(key)
+    try {
+      window.localStorage.removeItem(key)
+    } catch {
+      /* 무시 */
+    }
+  },
+}
+
 export const supabase = createClient(
   isConfigured ? url : 'https://placeholder.supabase.co',
   isConfigured ? anonKey : 'placeholder',
   {
     auth: {
-      persistSession: true, // 새로고침해도 로그인 유지
-      autoRefreshToken: true,
+      // 로그인 유지의 핵심 세 가지
+      persistSession: true, // 로그인 정보를 기기에 저장 (새로고침·앱 종료해도 유지)
+      autoRefreshToken: true, // 만료 전에 토큰을 알아서 갱신
       detectSessionInUrl: true,
+      storage: safeStorage,
       storageKey: 'nn-auth',
     },
   }

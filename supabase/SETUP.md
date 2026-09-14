@@ -139,7 +139,12 @@ alter publication supabase_realtime add table public.encouragements;
 → `on_auth_user_created` 트리거가 안 걸린 경우입니다. SQL 전체를 다시 실행하세요.
 앱에도 보정 로직이 있어서 로그인 시 프로필이 없으면 자동으로 만듭니다.
 
-**`GROUP_FULL` / `ALREADY_IN_GROUP` / `INVALID_CODE`**
+**응원하기를 누르면 "권한이 없습니다. 다시 로그인해주세요."**
+→ 로그인 문제가 아닙니다. 응원 테이블의 보안 정책이 아직 '그룹' 시절 것으로 남아 있어서
+"같은 그룹인가?" 를 묻는데, 이제 그룹이 없으니 항상 거절되는 상태입니다.
+→ SQL Editor 에서 **`supabase/fix-cheer.sql`** 을 붙여넣고 실행하세요. 이 파일만 실행하면 됩니다.
+
+**`INVALID_CODE` / `ALREADY_FRIENDS` 같은 메시지**
 → 정상 동작입니다. 앱이 한국어 안내 메시지로 바꿔서 보여줍니다.
 
 **기존 테스트 데이터를 싹 지우고 싶을 때**

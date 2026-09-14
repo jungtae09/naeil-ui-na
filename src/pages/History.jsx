@@ -1,17 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Flame, Trophy, CalendarCheck, CheckCheck, Check, Pencil, Lock } from 'lucide-react'
+import { Flame, Trophy, CalendarCheck, CheckCheck } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { usePrefs } from '../context/PrefsContext'
 import { useToday } from '../hooks/useToday'
 import { listRules } from '../services/rules'
-import {
-  checkRule,
-  listAllDailyStats,
-  listRecords,
-  ruleCompletionCounts,
-  uncheckRule,
-} from '../services/records'
+import { listAllDailyStats, listRecords, ruleCompletionCounts } from '../services/records'
 import { computeStats, rankRules } from '../services/stats'
 import { myCheerCount } from '../services/friends'
 import { earnedBadges } from '../utils/badges'
@@ -25,7 +18,6 @@ import { Skeleton } from '../components/Skeleton'
 export default function History() {
   const { user } = useAuth()
   const toast = useToast()
-  const { allowPastEdit } = usePrefs()
   const today = useToday()
 
   const [loading, setLoading] = useState(true)
@@ -37,8 +29,6 @@ export default function History() {
   const [selected, setSelected] = useState(null)
   const [dayDetail, setDayDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [dayDone, setDayDone] = useState(new Set())
-  const [dayBusyId, setDayBusyId] = useState(null)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -100,48 +90,14 @@ export default function History() {
     try {
       const records = await listRecords(user.id, ymd)
       setDayDetail({ ymd, records })
-      setDayDone(new Set(records.filter((r) => r.completed).map((r) => r.rule_id)))
     } catch (e) {
       toast.error(humanError(e, '그날의 기록을 불러오지 못했습니다.'))
       setDayDetail(null)
-      setDayDone(new Set())
     } finally {
       setDetailLoading(false)
     }
   }
 
-  /** 지난 날짜의 체크를 고친다 (설정에서 허용했을 때만 호출된다) */
-  async function toggleDay(rule) {
-    if (!selected || dayBusyId) return
-    const wasDone = dayDone.has(rule.id)
-    const prev = dayDone
-
-    const next = new Set(dayDone)
-    if (wasDone) next.delete(rule.id)
-    else next.add(rule.id)
-    setDayDone(next)
-    setDayBusyId(rule.id)
-
-    try {
-      if (wasDone) await uncheckRule(user.id, rule.id, selected)
-      else await checkRule(user.id, rule, selected)
-
-      // 연속 기록·달성률이 함께 다시 계산되도록 집계를 새로 읽는다
-      const [stats, counts, records] = await Promise.all([
-        listAllDailyStats(user.id),
-        ruleCompletionCounts(user.id, addDays(today, -29), today),
-        listRecords(user.id, selected),
-      ])
-      setDailyStats(stats)
-      setRuleCounts(counts)
-      setDayDetail({ ymd: selected, records })
-    } catch (e) {
-      setDayDone(prev) // 롤백
-      toast.error(humanError(e, '저장하지 못했습니다. 잠시 후 다시 시도해주세요.'))
-    } finally {
-      setDayBusyId(null)
-    }
-  }
 
   if (loading) {
     return (
@@ -208,11 +164,6 @@ export default function History() {
               loading={detailLoading}
               detail={dayDetail}
               complete={statsByDate.get(selected)?.is_complete}
-              rules={rules}
-              doneIds={dayDone}
-              busyId={dayBusyId}
-              editable={allowPastEdit && selected <= today}
-              onToggle={toggleDay}
             />
           )}
 
@@ -286,94 +237,19 @@ export default function History() {
   )
 }
 
-function DayDetail({ ymd, loading, detail, complete, rules, doneIds, busyId, editable, onToggle }) {
+function DayDetail({ ymd, loading, detail, complete }) {
   const records = detail?.records ?? []
-  const doneCount = records.length
-
-  // 지금은 없어진(비활성화된) 약속이지만 그날엔 기록된 것들
-  const activeIds = new Set(rules.map((r) => r.id))
-  const archived = records.filter((r) => !activeIds.has(r.rule_id))
 
   return (
     <section className="card px-5 py-5 animate-fadeUp">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-bold text-ink">{formatKorean(ymd)}</h2>
-          <p className="mt-1 text-xs text-muted">
-            {doneCount}개 완료
-            {complete && ' · 완주'}
-          </p>
-        </div>
-        {editable ? (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brandSoft px-2.5 py-1 text-[11px] font-bold text-brand">
-            <Pencil size={11} aria-hidden="true" /> 수정 가능
-          </span>
-        ) : (
-          <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-muted">
-            <Lock size={11} aria-hidden="true" /> 조회만
-          </span>
-        )}
-      </div>
+      <h2 className="text-sm font-bold text-ink">{formatKorean(ymd)}</h2>
+      <p className="mt-1 text-xs text-muted">
+        {records.length}개 완료
+        {complete && ' · 완주'}
+      </p>
 
       {loading ? (
         <Skeleton className="mt-4 h-24 w-full" />
-      ) : editable ? (
-        <>
-          <ul className="mt-4 space-y-1.5">
-            {rules.map((rule, i) => {
-              const done = doneIds.has(rule.id)
-              return (
-                <li key={rule.id}>
-                  <button
-                    type="button"
-                    onClick={() => onToggle(rule)}
-                    disabled={busyId === rule.id}
-                    aria-pressed={done}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition active:scale-[0.99] disabled:opacity-50 ${
-                      done ? 'bg-doneSoft' : 'bg-surface2/60 hover:bg-surface2'
-                    }`}
-                  >
-                    <span
-                      className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 transition ${
-                        done
-                          ? 'border-done bg-done text-white'
-                          : 'border-line bg-surface text-transparent'
-                      }`}
-                    >
-                      <Check size={13} strokeWidth={3} aria-hidden="true" />
-                    </span>
-                    <span className="w-5 shrink-0 text-[11px] font-bold tabular-nums text-muted">
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <span
-                      className={`min-w-0 flex-1 break-keep text-sm ${
-                        done ? 'font-semibold text-done' : 'text-ink'
-                      }`}
-                    >
-                      {rule.title}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-
-          {archived.length > 0 && (
-            <div className="mt-4 border-t border-line pt-4">
-              <p className="text-xs font-bold text-muted">그때만 있던 약속</p>
-              <ul className="mt-2 space-y-1">
-                {archived.map((r) => (
-                  <li key={r.id} className="flex items-start gap-2 text-sm text-muted">
-                    <span className="mt-0.5 text-done" aria-hidden="true">
-                      ✓
-                    </span>
-                    <span className="break-keep line-through">{r.rule_title || '(삭제된 약속)'}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </>
       ) : records.length > 0 ? (
         <ul className="mt-4 space-y-1.5">
           {records.map((r) => (
@@ -387,12 +263,6 @@ function DayDetail({ ymd, loading, detail, complete, rules, doneIds, busyId, edi
         </ul>
       ) : (
         <p className="mt-4 text-sm text-muted">이날은 기록이 없습니다.</p>
-      )}
-
-      {!editable && (
-        <p className="mt-4 break-keep border-t border-line pt-4 text-xs leading-relaxed text-muted">
-          지난 날짜를 고치고 싶다면 설정 → 기록에서 "지난 날짜 수정 허용" 을 켜주세요.
-        </p>
       )}
     </section>
   )

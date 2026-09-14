@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, LogOut, Sun, Moon, Monitor, Check, Bell, Smartphone } from 'lucide-react'
+import { ChevronRight, LogOut, Sun, Moon, Monitor, Check, Bell } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { useToast } from '../context/ToastContext'
@@ -188,11 +188,6 @@ export default function Settings() {
         <ReminderSettings />
       </Section>
 
-      {/* 기록 */}
-      <Section title="기록">
-        <PastEditSetting />
-      </Section>
-
       <button
         type="button"
         onClick={doSignOut}
@@ -329,33 +324,3 @@ function ReminderSettings() {
   )
 }
 
-function PastEditSetting() {
-  const { allowPastEdit, setPref } = usePrefs()
-
-  return (
-    <div className="px-5 py-5">
-      <div className="flex items-start gap-3">
-        <Smartphone size={18} className="mt-0.5 shrink-0 text-muted" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-ink">지난 날짜 수정 허용</p>
-          <p className="mt-1 break-keep text-xs leading-relaxed text-muted">
-            켜면 기록 화면의 달력에서 지난 날짜를 골라 체크를 고칠 수 있습니다. 깜빡하고 못 누른 걸
-            채우는 용도예요.
-          </p>
-        </div>
-        <Toggle
-          checked={allowPastEdit}
-          onChange={(v) => setPref('allowPastEdit', v)}
-          label="지난 날짜 수정 허용"
-        />
-      </div>
-
-      {allowPastEdit && (
-        <p className="mt-4 break-keep rounded-xl2 bg-surface2 px-4 py-3 text-xs leading-relaxed text-muted">
-          지난 기록을 고치면 연속 기록과 달성률도 함께 다시 계산됩니다. 스스로에게 솔직한 쪽이
-          나중에 돌아볼 때 더 도움이 돼요.
-        </p>
-      )}
-    </div>
-  )
-}

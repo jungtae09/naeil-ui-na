@@ -254,6 +254,18 @@ create table if not exists public.weekly_reviews (
 );
 
 -- ------------------------------------------------------------
+-- 6-1. daily_notes : 오늘의 질문에 대한 한 줄 답 (본인만)
+-- ------------------------------------------------------------
+create table if not exists public.daily_notes (
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  date       date not null,
+  question   text not null default '',
+  answer     text not null default '',
+  updated_at timestamptz not null default now(),
+  primary key (user_id, date)
+);
+
+-- ------------------------------------------------------------
 -- 7. encouragements : 응원 (하루 1인 1회)
 -- ------------------------------------------------------------
 create table if not exists public.encouragements (
@@ -338,7 +350,7 @@ grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on
   public.profiles, public.friendships, public.groups, public.group_members,
   public.rules, public.daily_records, public.daily_stats, public.weekly_reviews,
-  public.encouragements
+  public.daily_notes, public.encouragements
 to authenticated;
 
 -- ============================================================
@@ -353,6 +365,7 @@ alter table public.rules          enable row level security;
 alter table public.daily_records  enable row level security;
 alter table public.daily_stats    enable row level security;
 alter table public.weekly_reviews enable row level security;
+alter table public.daily_notes    enable row level security;
 alter table public.encouragements enable row level security;
 
 -- profiles ---------------------------------------------------
@@ -426,6 +439,11 @@ create policy daily_stats_write on public.daily_stats for all
 -- weekly_reviews : 본인만 ------------------------------------
 drop policy if exists weekly_reviews_all on public.weekly_reviews;
 create policy weekly_reviews_all on public.weekly_reviews for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- daily_notes : 본인만 ---------------------------------------
+drop policy if exists daily_notes_all on public.daily_notes;
+create policy daily_notes_all on public.daily_notes for all
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- encouragements ---------------------------------------------

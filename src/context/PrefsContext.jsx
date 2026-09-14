@@ -13,7 +13,6 @@ const KEY = 'nn-prefs'
 const DEFAULTS = {
   reminderEnabled: false,
   reminderTime: '21:00', // 저녁 9시
-  allowPastEdit: false,
 }
 
 const PrefsContext = createContext(null)

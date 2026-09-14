@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { TrendingUp, TrendingDown, Minus, Sparkles } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, Sparkles, Target } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useToday } from '../hooks/useToday'
 import { listRules } from '../services/rules'
 import { listAllDailyStats, ruleCompletionCounts } from '../services/records'
+import { getWeeklyGoal, saveWeeklyGoal } from '../services/notes'
 import { computeStats, rankRules } from '../services/stats'
 import { addDays, diffDays, formatShort, weekEnd, weekStart } from '../utils/date'
 import { humanError } from '../utils/errors'
 
 import EmptyState from '../components/EmptyState'
-import { Skeleton } from '../components/Skeleton'
+import { Skeleton, Spinner } from '../components/Skeleton'
 
 export default function Weekly() {
   const { user } = useAuth()
@@ -225,14 +226,123 @@ export default function Weekly() {
         </section>
       )}
 
-      <section className="card px-5 py-5">
-        <h2 className="text-sm font-bold text-ink">주간 회고</h2>
-        <p className="mt-2 break-keep text-sm leading-relaxed text-muted">
-          직접 적는 회고와 다음 주 목표 설정은 다음 단계에서 추가됩니다. 지금은 위의 자동 분석으로
-          이번 주를 돌아볼 수 있어요.
-        </p>
-      </section>
+      <WeeklyGoal userId={user.id} today={today} suggestion={ranked[ranked.length - 1]?.title} />
     </div>
+  )
+}
+
+/**
+ * 이번 주 목표 — 한 줄.
+ *
+ * 긴 회고를 쓰게 하면 아무도 안 쓴다.
+ * "하루에 1km 걷기" 처럼 한 줄이면 충분하고, 그게 오늘 화면에도 뜬다.
+ */
+function WeeklyGoal({ userId, today, suggestion }) {
+  const toast = useToast()
+  const [goal, setGoal] = useState('')
+  const [saved, setSaved] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    getWeeklyGoal(userId, today)
+      .then((g) => {
+        if (cancelled) return
+        setGoal(g)
+        setSaved(g)
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
+  }, [userId, today])
+
+  const dirty = goal.trim() !== saved.trim()
+
+  async function save() {
+    if (!dirty || busy) return
+    setBusy(true)
+    try {
+      const next = await saveWeeklyGoal(userId, today, goal)
+      setSaved(next)
+      setGoal(next)
+      toast.success(next ? '이번 주 목표를 저장했어요.' : '목표를 지웠어요.')
+    } catch (e) {
+      toast.error(humanError(e, '목표를 저장하지 못했습니다.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const examples = ['하루에 1km 걷기', '자기 전 휴대폰 30분 덜 보기', '물 8잔 마시기']
+
+  return (
+    <section className="card px-5 py-5">
+      <div className="mb-1 flex items-center gap-1.5 text-brand">
+        <Target size={15} aria-hidden="true" />
+        <h2 className="text-xs font-bold tracking-wider">이번 주 목표</h2>
+      </div>
+      <p className="break-keep text-sm leading-relaxed text-muted">
+        긴 회고 대신 한 줄이면 충분해요. 정해두면 오늘 화면 맨 위에 계속 보입니다.
+      </p>
+
+      {loading ? (
+        <Skeleton className="mt-4 h-12 w-full" />
+      ) : (
+        <>
+          <div className="mt-4 flex gap-2">
+            <input
+              className="field py-2.5 text-sm"
+              maxLength={60}
+              value={goal}
+              placeholder="하루에 1km 걷기"
+              aria-label="이번 주 목표"
+              onChange={(e) => setGoal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  save()
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={save}
+              disabled={!dirty || busy}
+              className="btn-primary shrink-0 px-5 py-2.5 text-sm"
+            >
+              {busy ? <Spinner size={15} /> : null}
+              저장
+            </button>
+          </div>
+
+          {!saved && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {(suggestion ? [`${suggestion} 하루도 빠짐없이`, ...examples] : examples)
+                .slice(0, 3)
+                .map((ex) => (
+                  <button
+                    key={ex}
+                    type="button"
+                    onClick={() => setGoal(ex)}
+                    className="rounded-full border border-line bg-surface2 px-3 py-1.5 text-xs font-semibold text-muted transition hover:text-ink"
+                  >
+                    {ex}
+                  </button>
+                ))}
+            </div>
+          )}
+
+          {saved && (
+            <p className="mt-3 text-xs text-muted">
+              다음 주가 되면 새 목표를 정할 수 있어요. 지난 목표는 그대로 남습니다.
+            </p>
+          )}
+        </>
+      )}
+    </section>
   )
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Flame, Trophy, ChevronRight, PartyPopper } from 'lucide-react'
+import { Flame, Trophy, ChevronRight, PartyPopper, Target } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useToday } from '../hooks/useToday'
@@ -9,6 +9,7 @@ import { listRules } from '../services/rules'
 import { checkRule, listRecords, listAllDailyStats, uncheckRule } from '../services/records'
 import { computeStats } from '../services/stats'
 import { getFriendStats, myCheers, cheerLabel } from '../services/friends'
+import { getNote, saveNote, getWeeklyGoal } from '../services/notes'
 import { formatKorean, greeting } from '../utils/date'
 import {
   quoteOfTheDay,
@@ -38,6 +39,8 @@ export default function Today() {
   const [dailyStats, setDailyStats] = useState([])
   const [people, setPeople] = useState([]) // 나 + 친구들
   const [cheers, setCheers] = useState([])
+  const [note, setNote] = useState('')
+  const [weeklyGoal, setWeeklyGoal] = useState('')
   const [busyId, setBusyId] = useState(null)
   const [overlay, setOverlay] = useState(null)
 
@@ -59,9 +62,16 @@ export default function Today() {
       const todayStat = stats.find((s) => s.date === today)
       if (todayStat?.is_complete) celebratedRef.current = true
 
-      const [friendStats, received] = await Promise.all([getFriendStats(today), myCheers(today)])
+      const [friendStats, received, savedNote, goal] = await Promise.all([
+        getFriendStats(today),
+        myCheers(today),
+        getNote(user.id, today).catch(() => null),
+        getWeeklyGoal(user.id, today).catch(() => ''),
+      ])
       setPeople(friendStats)
       setCheers(received)
+      setNote(savedNote?.answer ?? '')
+      setWeeklyGoal(goal)
     } catch (e) {
       toast.error(humanError(e, '기록을 불러오지 못했습니다. 화면을 새로고침해주세요.'))
     } finally {
@@ -103,6 +113,8 @@ export default function Today() {
   // 화면에 보이는 값은 방금 누른 체크가 즉시 반영되도록 로컬 값을 우선한다
   const liveComplete = total > 0 && doneCount >= total
   const liveStreak = liveComplete && !stats.todayComplete ? stats.currentStreak + 1 : stats.currentStreak
+
+  const todayQuestion = useMemo(() => questionOfTheDay(today), [today])
 
   const quote = useMemo(
     () =>
@@ -178,6 +190,22 @@ export default function Today() {
         <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-ink">오늘의 약속</h1>
         <p className="mt-1 text-sm text-muted">{formatKorean(today)}</p>
       </header>
+
+      {/* 이번 주 목표 — 정했을 때만 보여준다 */}
+      {weeklyGoal && (
+        <Link
+          to="/weekly"
+          className="card flex items-center gap-3 px-5 py-3.5 transition hover:border-brand/40"
+        >
+          <Target size={16} className="shrink-0 text-brand" aria-hidden="true" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[11px] font-bold tracking-wider text-muted">
+              이번 주 목표
+            </span>
+            <span className="block truncate text-sm font-semibold text-ink">{weeklyGoal}</span>
+          </span>
+        </Link>
+      )}
 
       {/* 연속 기록 */}
       <StreakBanner stats={stats} liveStreak={liveStreak} liveComplete={liveComplete} />
@@ -259,7 +287,19 @@ export default function Today() {
       )}
 
       {/* 오늘의 한마디 */}
-      <QuoteCard text={quote.text} question={questionOfTheDay(today)} />
+      <QuoteCard
+        text={quote.text}
+        question={todayQuestion}
+        answer={note}
+        onSaveAnswer={async (value) => {
+          try {
+            await saveNote(user.id, today, todayQuestion, value)
+            setNote(value.trim())
+          } catch (e) {
+            toast.error(humanError(e, '답을 저장하지 못했습니다.'))
+          }
+        }}
+      />
 
       {/* 친구들의 오늘 */}
       <FriendsPreview people={people} />

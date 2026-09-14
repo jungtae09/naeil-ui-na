@@ -16,6 +16,13 @@ function nowHHmm() {
   }).format(new Date())
 }
 
+/** 'HH:MM' 두 개의 분 차이 */
+function minutesBetween(from, to) {
+  const [fh, fm] = from.split(':').map(Number)
+  const [th, tm] = to.split(':').map(Number)
+  return th * 60 + tm - (fh * 60 + fm)
+}
+
 function alreadySentToday(ymd) {
   try {
     return localStorage.getItem(SENT_KEY) === ymd
@@ -48,8 +55,19 @@ export function useReminder(userId) {
 
     async function tick() {
       if (busy.current) return
-      if (nowHHmm() !== reminderTime) return
       if (alreadySentToday(today)) return
+
+      // 정확히 그 '분' 에만 맞추면, 폰이 잠들었거나 앱이 뒤에 있어서
+      // 그 순간을 놓치면 알림이 영영 안 왔다.
+      // 그래서 "정한 시각이 지났는가" 로 판단한다.
+      const now = nowHHmm()
+      if (now < reminderTime) return
+
+      // 너무 늦게 앱을 열었다면(3시간 넘게 지남) 굳이 알리지 않고 오늘 건 넘긴다
+      if (minutesBetween(reminderTime, now) > 180) {
+        markSent(today)
+        return
+      }
 
       busy.current = true
       try {
@@ -87,10 +105,22 @@ export function useReminder(userId) {
       }
     }
 
-    // 30초마다 확인 — 설정한 분을 놓치지 않을 정도로만
-    const id = setInterval(tick, 30_000)
-    tick()
+    // 1분마다 확인하되, 앱을 다시 열었을 때도 즉시 한 번 확인한다.
+    // (백그라운드에서는 타이머가 느려지거나 멈추기 때문)
+    const id = setInterval(tick, 60_000)
 
-    return () => clearInterval(id)
+    function onResume() {
+      if (document.visibilityState === 'visible') tick()
+    }
+
+    tick()
+    document.addEventListener('visibilitychange', onResume)
+    window.addEventListener('focus', onResume)
+
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onResume)
+      window.removeEventListener('focus', onResume)
+    }
   }, [userId, reminderEnabled, reminderTime, today])
 }

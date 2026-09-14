@@ -163,7 +163,9 @@ export function randomCompleteMessage() {
  */
 export function quoteOfTheDay({ ymd, streak = 0, isComplete = false, hadBreak = false, totalDays = 0 }) {
   let category = 'habit'
-  if (totalDays <= 1) category = 'first'
+  // 기록이 한 줄도 없을 때만 '첫날' 문구를 쓴다.
+  // (<= 1 로 두면 둘째 날 아침에도 첫날 문구가 다시 떴다)
+  if (totalDays === 0) category = 'first'
   else if (hadBreak && streak === 0) category = 'restart'
   else if (isComplete) category = 'growth'
   else if (streak >= 7) category = 'habit'
